@@ -1,0 +1,31 @@
+{
+  "name": "python_abi",
+  "version": "3.13",
+  "build": "0_cp313",
+  "build_number": 0,
+  "channel": "https://repo.anaconda.com/pkgs/main/win-64",
+  "subdir": "win-64",
+  "fn": "python_abi-3.13-0_cp313.conda",
+  "md5": "fd87d8ec3270d306609b9715f6d45609",
+  "url": "https://repo.anaconda.com/pkgs/main/win-64/python_abi-3.13-0_cp313.conda",
+  "sha256": "cf5f924772b776dee3c8d01021c4c5fcd31263140597b5fe0e63cb58716e2db0",
+  "depends": [],
+  "constrains": [
+    "python 3.13.* *_cp313"
+  ],
+  "license": "BSD-3-Clause",
+  "timestamp": 1727770257000,
+  "size": 6860,
+  "requested_spec": "None",
+  "package_tarball_full_path": "C:\\Users\\ganesh\\anaconda4\\pkgs\\python_abi-3.13-0_cp313.conda",
+  "extracted_package_dir": "C:\\Users\\ganesh\\anaconda4\\pkgs\\python_abi-3.13-0_cp313",
+  "files": [],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": []
+  },
+  "link": {
+    "source": "C:\\Users\\ganesh\\anaconda4\\pkgs\\python_abi-3.13-0_cp313",
+    "type": 1
+  }
+}
