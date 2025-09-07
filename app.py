@@ -10,7 +10,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 
 # ---------- CONFIG ----------
-DATA_PATH = r"C:\Users\ganesh\OneDrive\Desktop\AI Workforce\Unsupervised-Kmeans,hierachical\data_student.csv"
+DATA_PATH = "data_student.csv"
 N_CLUSTERS = 3
 DBSCAN_EPS = 1.5
 DBSCAN_MIN_SAMPLES = 3
