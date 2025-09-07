@@ -49,8 +49,8 @@ Try the interactive clustering app online here:
 
 You can include example outputs from the `images/` folder like this:
 
-![Cluster Example 1](images/input.png)
-![Cluster Example 2](images/graph.png)
+![Cluster Example 1](image/input.png)
+![Cluster Example 2](image/graph.png)
 
 
 ---
