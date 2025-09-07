@@ -1,33 +1,41 @@
-import io
-import math
 import gradio as gr
-import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from PIL import Image
-from sklearn.decomposition import PCA
+import numpy as np
 from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
-DATA_PATH = "data_student.csv"
-USERNAME = "admin"
-PASSWORD = "123"
-N_CLUSTERS = 3  
+import math
+import io
+from PIL import Image
+import matplotlib.pyplot as plt
+
+# ---------- CONFIG ----------
+DATA_PATH = r"C:\Users\ganesh\OneDrive\Desktop\AI Workforce\Unsupervised-Kmeans,hierachical\data_student.csv"
+N_CLUSTERS = 3
+DBSCAN_EPS = 1.5
+DBSCAN_MIN_SAMPLES = 3
+REMOVE_OUTLIERS = True
+
+# ---------- USERS ----------
+USERS = {
+    "admin": "1234",
+    "nithya": "password"
+}
+
+# ---------- Helper Functions ----------
 def safe_load_data(path):
-    try:
-        df = pd.read_csv(path)
-        required = ["STG","SCG","STR"]
-        if not all(col in df.columns for col in required):
-            raise ValueError(f"CSV must contain columns: {required}")
-        return df
-    except Exception as e:
-        # fallback: tiny random dataset so app still runs
-        print(f"Warning loading CSV ({e}); using random sample dataset instead.")
-        rng = np.random.default_rng(42)
-        df = pd.DataFrame(rng.integers(100, 20000, size=(60,6)), columns=['Fresh','Milk','Grocery','Frozen','Detergents_Paper','Delicassen'])
-        return df
+    df = pd.read_csv(path)
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    return df, numeric_cols
+
+def remove_outliers_iqr(df, numeric_cols):
+    Q1 = df[numeric_cols].quantile(0.25)
+    Q3 = df[numeric_cols].quantile(0.75)
+    IQR = Q3 - Q1
+    df_clean = df[~((df[numeric_cols] < (Q1 - 1.5*IQR)) | (df[numeric_cols] > (Q3 + 1.5*IQR))).any(axis=1)]
+    return df_clean
 
 def compute_centroid_dict(X_scaled, labels):
-    """Return dict: label -> centroid (mean vector). Ignore noise label -1."""
     centroids = {}
     unique = np.unique(labels)
     for lbl in unique:
@@ -39,7 +47,6 @@ def compute_centroid_dict(X_scaled, labels):
     return centroids
 
 def assign_by_nearest_centroid(x_scaled, centroids):
-    """Assign x_scaled (1xD) to nearest centroid. centroids: {label: vector}"""
     if len(centroids) == 0:
         return None
     best_lbl = None
@@ -52,12 +59,6 @@ def assign_by_nearest_centroid(x_scaled, centroids):
     return best_lbl
 
 def create_combined_plot(X_pca, labels_dict, x_input_pca, pred_labels):
-    """
-    labels_dict: {'KMeans': labels_k, 'Hierarchical': labels_h, 'DBSCAN': labels_d}
-    x_input_pca: (1,2)
-    pred_labels: dict of predicted labels to annotate
-    returns PIL.Image
-    """
     fig, axes = plt.subplots(1, 3, figsize=(16, 5))
     algos = ['KMeans', 'Hierarchical', 'DBSCAN']
     cmap = plt.cm.get_cmap("tab10")
@@ -65,12 +66,10 @@ def create_combined_plot(X_pca, labels_dict, x_input_pca, pred_labels):
         ax = axes[i]
         lbls = labels_dict[algo]
         unique = np.unique(lbls)
-        # map noise (-1) to a color index optionally
         for j, u in enumerate(unique):
             mask = lbls == u
-            color = cmap(j % 10) if u != -1 else (0.6,0.6,0.6)  # gray for noise
+            color = cmap(j % 10) if u != -1 else (0.6,0.6,0.6)
             ax.scatter(X_pca[mask,0], X_pca[mask,1], c=[color], s=40, label=f"Cluster {u}", alpha=0.6, edgecolors='k', linewidths=0.2)
-        # plot input
         ax.scatter(x_input_pca[0,0], x_input_pca[0,1], c='red', marker='X', s=200, label='Your Input', edgecolors='k')
         ax.set_title(f"{algo} (pred: {pred_labels.get(algo,'N/A')})")
         ax.set_xlabel("PC1")
@@ -83,29 +82,24 @@ def create_combined_plot(X_pca, labels_dict, x_input_pca, pred_labels):
     buf.seek(0)
     return Image.open(buf)
 
-# ---------- Load & train (once at startup) ----------
-df = safe_load_data(DATA_PATH)
-features = ['Fresh','Milk','Grocery','Frozen','Detergents_Paper','Delicassen']
-X = df[features].values.astype(float)
+# ---------- Load & preprocess ----------
+df, numeric_cols = safe_load_data(DATA_PATH)
+if REMOVE_OUTLIERS:
+    df = remove_outliers_iqr(df, numeric_cols)
 
+X = df[numeric_cols].values.astype(float)
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
-# KMeans (can predict on new data)
 kmeans = KMeans(n_clusters=N_CLUSTERS, random_state=42)
 kmeans_labels = kmeans.fit_predict(X_scaled)
 
-# Hierarchical (no predict method) - we compute labels on training data
 hier_labels = AgglomerativeClustering(n_clusters=N_CLUSTERS).fit_predict(X_scaled)
-
-# DBSCAN
-db_labels = DBSCAN(eps=1.5, min_samples=3).fit_predict(X_scaled)
-
-# Precompute centroids/means for hierarchical and dbscan (for assignment)
 hier_centroids = compute_centroid_dict(X_scaled, hier_labels)
+
+db_labels = DBSCAN(eps=DBSCAN_EPS, min_samples=DBSCAN_MIN_SAMPLES).fit_predict(X_scaled)
 db_centroids = compute_centroid_dict(X_scaled, db_labels)
 
-# Prepare PCA for plotting
 pca = PCA(n_components=2)
 X_pca = pca.fit_transform(X_scaled)
 
@@ -115,78 +109,66 @@ labels_dict_train = {
     'DBSCAN': db_labels
 }
 
-# ---------- Gradio app ----------
-def login_action(username, password):
-    if username == USERNAME and password == PASSWORD:
-        return gr.update(visible=True), "✅ Login successful! Enter data below."
-    else:
-        return gr.update(visible=False), "❌ Invalid username/password"
+# ---------- Gradio Functions ----------
+def check_login(username, password):
+    if username in USERS and USERS[username] == password:
+        return True
+    return False
 
-def predict_and_visualize(Fresh, Milk, Grocery, Frozen, Detergents_Paper, Delicassen):
-    try:
-        user_arr = np.array([[Fresh, Milk, Grocery, Frozen, Detergents_Paper, Delicassen]], dtype=float)
-        user_scaled = scaler.transform(user_arr)  # shape (1, D)
+def predict_and_visualize(*user_inputs):
+    user_arr = np.array([user_inputs], dtype=float)
+    user_scaled = scaler.transform(user_arr)
 
-        # KMeans predict
-        km_label = int(kmeans.predict(user_scaled)[0])
+    km_label = int(kmeans.predict(user_scaled)[0])
+    hier_label = assign_by_nearest_centroid(user_scaled, hier_centroids)
+    db_label = assign_by_nearest_centroid(user_scaled, db_centroids)
+    if db_label is None:
+        db_label = -1
 
-        # Assign hierarchical via nearest centroid (mean)
-        hier_label = assign_by_nearest_centroid(user_scaled, hier_centroids)
-        # Assign DBSCAN similarly
-        db_label = assign_by_nearest_centroid(user_scaled, db_centroids)
-        if db_label is None:
-            db_label = -1  # no DBSCAN clusters (all noise?) -> mark -1
+    user_pca = pca.transform(user_scaled)
+    pred_labels = {'KMeans': km_label, 'Hierarchical': hier_label, 'DBSCAN': db_label}
 
-        # PCA transform input for plotting
-        user_pca = pca.transform(user_scaled)  # shape (1,2)
+    img = create_combined_plot(X_pca, labels_dict_train, user_pca, pred_labels)
+    return f"{km_label}", f"{hier_label}", f"{db_label}", img
 
-        pred_labels = {'KMeans': km_label, 'Hierarchical': hier_label, 'DBSCAN': db_label}
-        img = create_combined_plot(X_pca, labels_dict_train, user_pca, pred_labels)
-
-        return f"{km_label}", f"{hier_label}", f"{db_label}", img
-
-    except Exception as e:
-        # return error strings and no image
-        msg = f"Error: {str(e)}"
-        return msg, msg, msg, None
-
-# Build Blocks UI with login and clustering (clustering hidden until login)
-with gr.Blocks(theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🔐 Wholesale Customers — Clustering Explorer")
+# ---------- Build Gradio App ----------
+with gr.Blocks() as demo:
+    # ---------- Login UI ----------
     with gr.Row():
-        with gr.Column(scale=1):
-            gr.Markdown("### Login")
-            username = gr.Textbox(label="Username")
-            password = gr.Textbox(label="Password", type="password")
+        with gr.Column():
+            gr.Markdown("## 🔐 Login")
+            username_input = gr.Textbox(label="Username")
+            password_input = gr.Textbox(label="Password", type="password")
             login_btn = gr.Button("Login")
-            login_msg = gr.Markdown("")  # text for messages
+            login_message = gr.Textbox(label="Status")
 
-        with gr.Column(scale=2):
-            gr.Markdown("**Instructions**: Login first (default: `admin` / `123`). Then enter the 6 numeric features and click *Predict*.")
-    # clustering container: hidden until login
-    with gr.Column(visible=False) as cluster_col:
-        gr.Markdown("### 🧪 Enter customer features")
-        with gr.Row():
-            fresh_in = gr.Number(label="Fresh")
-            milk_in = gr.Number(label="Milk")
-            grocery_in = gr.Number(label="Grocery")
-        with gr.Row():
-            frozen_in = gr.Number(label="Frozen")
-            det_in = gr.Number(label="Detergents_Paper")
-            deli_in = gr.Number(label="Delicassen")
+    # ---------- Main Clustering UI (hidden initially) ----------
+    with gr.Row(visible=False) as main_ui:
+        gr.Markdown("# 🧮 Customer Clustering Explorer")
+        gr.Markdown("Enter numeric features below and predict clusters:")
+        input_fields = [gr.Number(label=col) for col in numeric_cols]
         predict_btn = gr.Button("Predict Clusters")
-        with gr.Row():
-            km_out = gr.Textbox(label="KMeans Cluster", interactive=False)
-            hier_out = gr.Textbox(label="Hierarchical Cluster (nearest mean)", interactive=False)
-            db_out = gr.Textbox(label="DBSCAN Cluster (nearest mean)", interactive=False)
+        km_out = gr.Textbox(label="KMeans Cluster")
+        hier_out = gr.Textbox(label="Hierarchical Cluster")
+        db_out = gr.Textbox(label="DBSCAN Cluster")
         plot_out = gr.Image(label="Cluster visualization (PCA 2D)")
 
-    # Wire login and predict
-    login_btn.click(fn=login_action, inputs=[username, password], outputs=[cluster_col, login_msg])
-    predict_btn.click(fn=predict_and_visualize,
-                      inputs=[fresh_in, milk_in, grocery_in, frozen_in, det_in, deli_in],
-                      outputs=[km_out, hier_out, db_out, plot_out])
+        predict_btn.click(fn=predict_and_visualize,
+                          inputs=input_fields,
+                          outputs=[km_out, hier_out, db_out, plot_out])
 
-# Launch
+    # ---------- Login Action ----------
+    def login_action(username, password):
+        if check_login(username, password):
+            return "Login successful! You can now use the clustering tool.", gr.update(visible=True)
+        else:
+            return "Login failed! Please check your username and password.", gr.update(visible=False)
+
+    login_btn.click(fn=login_action,
+                    inputs=[username_input, password_input],
+                    outputs=[login_message, main_ui])
+
+
+# ---------- Launch ----------
 if __name__ == "__main__":
     demo.launch()
