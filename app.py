@@ -17,10 +17,7 @@ DBSCAN_MIN_SAMPLES = 3
 REMOVE_OUTLIERS = True
 
 # ---------- USERS ----------
-USERS = {
-    "admin": "1234",
-    "nithya": "password"
-}
+USERS = {"admin": "1234", "nithya": "password"}
 
 # ---------- Helper Functions ----------
 def safe_load_data(path):
@@ -37,8 +34,7 @@ def remove_outliers_iqr(df, numeric_cols):
 
 def compute_centroid_dict(X_scaled, labels):
     centroids = {}
-    unique = np.unique(labels)
-    for lbl in unique:
+    for lbl in np.unique(labels):
         if lbl == -1:
             continue
         mask = labels == lbl
@@ -49,32 +45,27 @@ def compute_centroid_dict(X_scaled, labels):
 def assign_by_nearest_centroid(x_scaled, centroids):
     if len(centroids) == 0:
         return None
-    best_lbl = None
-    best_dist = math.inf
+    best_lbl, best_dist = None, math.inf
     for lbl, c in centroids.items():
-        d = np.linalg.norm(x_scaled.ravel() - c)
-        if d < best_dist:
-            best_dist = d
+        dist = np.linalg.norm(x_scaled.ravel() - c)
+        if dist < best_dist:
+            best_dist = dist
             best_lbl = int(lbl)
     return best_lbl
 
-def create_combined_plot(X_pca, labels_dict, x_input_pca, pred_labels):
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
-    algos = ['KMeans', 'Hierarchical', 'DBSCAN']
+def plot_selected_algorithm(X_pca, labels, x_input_pca, pred_label, algo_name):
+    fig, ax = plt.subplots(figsize=(6,5))
+    unique_labels = np.unique(labels)
     cmap = plt.cm.get_cmap("tab10")
-    for i, algo in enumerate(algos):
-        ax = axes[i]
-        lbls = labels_dict[algo]
-        unique = np.unique(lbls)
-        for j, u in enumerate(unique):
-            mask = lbls == u
-            color = cmap(j % 10) if u != -1 else (0.6,0.6,0.6)
-            ax.scatter(X_pca[mask,0], X_pca[mask,1], c=[color], s=40, label=f"Cluster {u}", alpha=0.6, edgecolors='k', linewidths=0.2)
-        ax.scatter(x_input_pca[0,0], x_input_pca[0,1], c='red', marker='X', s=200, label='Your Input', edgecolors='k')
-        ax.set_title(f"{algo} (pred: {pred_labels.get(algo,'N/A')})")
-        ax.set_xlabel("PC1")
-        ax.set_ylabel("PC2")
-        ax.legend(loc='best', fontsize=8)
+    for i, lbl in enumerate(unique_labels):
+        mask = labels == lbl
+        color = cmap(i % 10) if lbl != -1 else (0.6,0.6,0.6)
+        ax.scatter(X_pca[mask,0], X_pca[mask,1], c=[color], s=40, label=f"Cluster {lbl}" if lbl!=-1 else "Outlier", alpha=0.6, edgecolors='k', linewidths=0.2)
+    ax.scatter(x_input_pca[0,0], x_input_pca[0,1], c='red', marker='X', s=200, label='Your Input', edgecolors='k')
+    ax.set_title(f"{algo_name} (pred: {pred_label})")
+    ax.set_xlabel("PC1")
+    ax.set_ylabel("PC2")
+    ax.legend(loc='best', fontsize=8)
     plt.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=150)
@@ -103,71 +94,72 @@ db_centroids = compute_centroid_dict(X_scaled, db_labels)
 pca = PCA(n_components=2)
 X_pca = pca.fit_transform(X_scaled)
 
-labels_dict_train = {
-    'KMeans': kmeans_labels,
-    'Hierarchical': hier_labels,
-    'DBSCAN': db_labels
-}
-
 # ---------- Gradio Functions ----------
 def check_login(username, password):
-    if username in USERS and USERS[username] == password:
-        return True
-    return False
+    return username in USERS and USERS[username] == password
 
-def predict_and_visualize(*user_inputs):
+def predict_selected_algo(selected_algo, highlight_outliers, *user_inputs):
     user_arr = np.array([user_inputs], dtype=float)
     user_scaled = scaler.transform(user_arr)
-
-    km_label = int(kmeans.predict(user_scaled)[0])
-    hier_label = assign_by_nearest_centroid(user_scaled, hier_centroids)
-    db_label = assign_by_nearest_centroid(user_scaled, db_centroids)
-    if db_label is None:
-        db_label = -1
-
     user_pca = pca.transform(user_scaled)
-    pred_labels = {'KMeans': km_label, 'Hierarchical': hier_label, 'DBSCAN': db_label}
 
-    img = create_combined_plot(X_pca, labels_dict_train, user_pca, pred_labels)
-    return f"{km_label}", f"{hier_label}", f"{db_label}", img
+    pred_label = None
+    plot_img = None
+
+    if selected_algo == 'KMeans':
+        pred_label = int(kmeans.predict(user_scaled)[0])
+        plot_img = plot_selected_algorithm(X_pca, kmeans_labels, user_pca, pred_label, "KMeans")
+    elif selected_algo == 'Hierarchical':
+        pred_label = assign_by_nearest_centroid(user_scaled, hier_centroids)
+        plot_img = plot_selected_algorithm(X_pca, hier_labels, user_pca, pred_label, "Hierarchical")
+    elif selected_algo == 'DBSCAN':
+        pred_label = assign_by_nearest_centroid(user_scaled, db_centroids)
+        if pred_label is None:
+            pred_label = -1
+        if highlight_outliers:
+            db_labels_mapped = np.array(["Outlier" if l == -1 else f"Cluster {l}" for l in db_labels])
+            plot_img = plot_selected_algorithm(X_pca, db_labels_mapped, user_pca,
+                                               "Outlier" if pred_label==-1 else f"Cluster {pred_label}", "DBSCAN")
+        else:
+            plot_img = plot_selected_algorithm(X_pca, db_labels, user_pca, pred_label, "DBSCAN")
+
+    return str(pred_label), plot_img
 
 # ---------- Build Gradio App ----------
 with gr.Blocks() as demo:
-    # ---------- Login UI ----------
+    # Login UI
     with gr.Row():
-        with gr.Column():
+        with gr.Column(scale=1):
             gr.Markdown("## 🔐 Login")
             username_input = gr.Textbox(label="Username")
             password_input = gr.Textbox(label="Password", type="password")
             login_btn = gr.Button("Login")
             login_message = gr.Textbox(label="Status")
 
-    # ---------- Main Clustering UI (hidden initially) ----------
-    with gr.Row(visible=False) as main_ui:
-        gr.Markdown("# 🧮 Customer Clustering Explorer")
-        gr.Markdown("Enter numeric features below and predict clusters:")
+    # Main UI
+    main_ui = gr.Column(visible=False)
+    with main_ui:
+        gr.Markdown("### Choose Algorithm:")
+        algo_select = gr.Dropdown(["KMeans","Hierarchical","DBSCAN"], value="KMeans", label="Select Algorithm")
+        highlight_outliers = gr.Checkbox(label="Highlight Outliers (DBSCAN only)", value=True)
+        gr.Markdown("### Enter Numeric Features:")
         input_fields = [gr.Number(label=col) for col in numeric_cols]
-        predict_btn = gr.Button("Predict Clusters")
-        km_out = gr.Textbox(label="KMeans Cluster")
-        hier_out = gr.Textbox(label="Hierarchical Cluster")
-        db_out = gr.Textbox(label="DBSCAN Cluster")
-        plot_out = gr.Image(label="Cluster visualization (PCA 2D)")
+        predict_btn = gr.Button("Predict Cluster")
+        cluster_out = gr.Textbox(label="Predicted Cluster")
+        plot_out = gr.Image(label="Cluster Plot")
 
-        predict_btn.click(fn=predict_and_visualize,
-                          inputs=input_fields,
-                          outputs=[km_out, hier_out, db_out, plot_out])
-
-    # ---------- Login Action ----------
+    # Login Action
     def login_action(username, password):
         if check_login(username, password):
             return "Login successful! You can now use the clustering tool.", gr.update(visible=True)
         else:
-            return "Login failed! Please check your username and password.", gr.update(visible=False)
+            return "Login failed! Check username/password.", gr.update(visible=False)
 
-    login_btn.click(fn=login_action,
-                    inputs=[username_input, password_input],
-                    outputs=[login_message, main_ui])
+    login_btn.click(fn=login_action, inputs=[username_input, password_input], outputs=[login_message, main_ui])
 
+    # Predict Action
+    predict_btn.click(fn=predict_selected_algo, inputs=[algo_select, highlight_outliers]+input_fields,
+                      outputs=[cluster_out, plot_out])
 
 # ---------- Launch ----------
 if __name__ == "__main__":
