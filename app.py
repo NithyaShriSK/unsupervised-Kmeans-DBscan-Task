@@ -108,7 +108,13 @@ def predict_selected_algo(selected_algo, highlight_outliers, *user_inputs):
 
     if selected_algo == 'KMeans':
         pred_label = int(kmeans.predict(user_scaled)[0])
-        plot_img = plot_selected_algorithm(X_pca, kmeans_labels, user_pca, pred_label, "KMeans")
+        label_map = {0: " cluster 0:Low", 1: "cluster 1:Middle", 2: "cluster2:High"}
+        cluster_name = label_map.get(pred_label, str(pred_label))
+
+        plot_img = plot_selected_algorithm(
+            X_pca, kmeans_labels, user_pca, cluster_name, "KMeans"
+        )
+        return cluster_name, plot_img
     elif selected_algo == 'Hierarchical':
         pred_label = assign_by_nearest_centroid(user_scaled, hier_centroids)
         plot_img = plot_selected_algorithm(X_pca, hier_labels, user_pca, pred_label, "Hierarchical")
